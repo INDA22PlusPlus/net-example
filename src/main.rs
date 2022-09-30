@@ -38,24 +38,32 @@ struct MainState {
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
+        // A stream and a boolean indicating wether or not the program is a host or a client
         let (stream, client) = {
             let mut args = std::env::args();
             // Skip path to program
             let _ = args.next();
 
+            // Get first argument after path to program
             let host_or_client = args
                 .next()
                 .expect("Expected arguments: --host or --client 'ip'");
+
             match host_or_client.as_str() {
+                // If the program is running as host we listen on port 8080 until we get a
+                // connection then we return the stream.
                 "--host" => {
                     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
                     (listener.incoming().next().unwrap().unwrap(), false)
                 }
+                // If the program is running as a client we connect to the specified IP address and
+                // return the stream.
                 "--client" => {
                     let ip = args.next().expect("Expected ip address after --client");
                     let stream = TcpStream::connect(ip).expect("Failed to connect to host");
                     (stream, true)
                 }
+                // Only --host and --client are valid arguments
                 _ => panic!("Unknown command: {}", host_or_client),
             }
         };
@@ -81,7 +89,7 @@ impl MainState {
         Ok(MainState {
             player_pos: if client { (7, 7) } else { (0, 0) },
             enemy_pos: if client { (0, 0) } else { (7, 7) },
-            // Host starts
+            // Host starts playing and the client waits
             state: if client {
                 State::WaitingForOpponent
             } else {
@@ -93,6 +101,7 @@ impl MainState {
         })
     }
 
+    /// Checks if a move packet is available in returns the new positions otherwise it returns none
     fn recieve_move_packet(&mut self) -> Option<(u8, u8)> {
         let mut buf = [0u8; 2];
         match self.stream.read(&mut buf) {
@@ -104,6 +113,7 @@ impl MainState {
         }
     }
 
+    /// Sends a move packet of the current position and sets the state to waiting
     fn send_move_packet(&mut self) {
         let mut buf = [self.player_pos.0, self.player_pos.1];
         self.stream
@@ -159,6 +169,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
         match self.state {
             State::Playing => {}
             State::WaitingForOpponent => {
+                // If we recieved at move packet we first set the enemy pos to the recieved
+                // position and then set the state to playing
                 if let Some(pos) = self.recieve_move_packet() {
                     self.state = State::Playing;
                     self.enemy_pos = pos;
